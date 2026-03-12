@@ -219,13 +219,19 @@ async function consultarProposta(numero) {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(500);
 
-    // Navega direto para a busca pelo número — evita preencher formulário
-    // A URL de busca já inclui o contrato como parâmetro (visto na URL do portal)
-    await page.goto(`https://portal.happyconsig.com.br/contratos?page=1&contrato=${numero}`, { waitUntil: 'networkidle' });
+    // Navega para a página de Contratos
+    await page.getByText('Contratos', { exact: true }).click();
+    await page.waitForSelector('button:has-text("Relatórios")', { state: 'visible', timeout: 15000 });
 
-    // Aguarda o link com o número aparecer na tabela de resultados
-    await page.waitForSelector(`a:has-text("${numero}")`, { state: 'visible', timeout: 30000 });
-    await page.locator(`a:has-text("${numero}")`).first().click();
+    // Preenche o número do contrato e clica em Pesquisar
+    await page.getByRole('textbox').first().fill(String(numero));
+    await page.getByRole('button', { name: /Pesquisar/ }).click();
+
+    // Aguarda a linha da tabela aparecer (não usa timer fixo)
+    await page.waitForSelector('table tbody tr', { state: 'visible', timeout: 30000 });
+
+    // Clica no primeiro link dentro da tabela (o número azul da proposta)
+    await page.locator('table tbody tr a').first().click();
     await page.waitForSelector('[role="dialog"]', { state: 'visible', timeout: 15000 });
     await page.waitForTimeout(500);
 
