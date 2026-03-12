@@ -26,6 +26,7 @@ app.post('/gerar-relatorio', async (req, res) => {
   try {
     // Abre o Chromium do sistema (Railway já tem instalado)
     navegador = await chromium.launch({
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
