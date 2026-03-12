@@ -227,11 +227,11 @@ async function consultarProposta(numero) {
     await page.getByRole('textbox').first().fill(String(numero));
     await page.getByRole('button', { name: /Pesquisar/ }).click();
 
-    // Aguarda a linha da tabela aparecer (não usa timer fixo)
-    await page.waitForSelector('table tbody tr', { state: 'visible', timeout: 30000 });
+    // Aguarda a linha real de dados aparecer (ignora a linha fantasma ant-table-measure-row)
+    await page.waitForSelector('tr.ant-table-row a', { state: 'visible', timeout: 30000 });
 
-    // Clica no primeiro link dentro da tabela (o número azul da proposta)
-    await page.locator('table tbody tr a').first().click();
+    // Clica no primeiro link da linha de dados (o número azul da proposta)
+    await page.locator('tr.ant-table-row a').first().click();
     await page.waitForSelector('[role="dialog"]', { state: 'visible', timeout: 15000 });
     await page.waitForTimeout(500);
 
