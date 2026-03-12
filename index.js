@@ -334,6 +334,104 @@ async function interceptarAPI(numero) {
   }
 }
 
+// Chama a API do Happy de DENTRO do browser (bypassa Cloudflare) e retorna JSON completo
+// Objetivo: entender a estrutura do response de detalhe-contratos (campo de status/historico)
+async function chamarAPIViaBrowser(numero) {
+  let browser;
+  try {
+    browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    const page = await browser.newPage();
+    page.setDefaultTimeout(60000);
+
+    // Captura o token Bearer do login
+    let bearerToken = null;
+    let identificadorUsuario = null;
+    page.on('response', async (response) => {
+      const url = response.url();
+      if (url.includes('/api/auth/permissoes-usuario/')) {
+        try {
+          const data = await response.json();
+          identificadorUsuario = data.unique_id;
+        } catch(e) {}
+      }
+      if (url.includes('/api/auth/select-corban/')) {
+        try {
+          const data = await response.json();
+          // O token final (após select-corban) é o que tem corban selecionado
+          if (data.access) bearerToken = data.access;
+        } catch(e) {}
+      }
+    });
+
+    // Login completo
+    await page.goto('https://portal.happyconsig.com.br', { waitUntil: 'networkidle' });
+    await page.getByLabel('CPF').fill(CPF);
+    await page.getByLabel('Senha').fill(SENHA);
+    await page.getByRole('button', { name: 'Continuar' }).click();
+    const loginResult = await Promise.race([
+      page.waitForSelector('text=Contratos', { state: 'visible', timeout: 90000 }).then(() => 'ok'),
+      page.waitForSelector('canvas', { state: 'visible', timeout: 90000 }).then(() => 'qr'),
+    ]).catch(() => 'timeout');
+    if (loginResult !== 'ok') return { erro: 'Login falhou' };
+    await page.waitForTimeout(1000); // garante que os tokens foram capturados
+
+    // Usa page.evaluate para chamar a API de dentro do browser (tem cookies Cloudflare)
+    const resultado = await page.evaluate(async ({ numero, token, usuarioId }) => {
+      const headers = {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      };
+
+      // Passo 1: busca o UUID do contrato
+      const listarResp = await fetch('https://backoffice.happyconsig.com.br/api/contratos/listar-contratos/', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          page: 1, contrato: String(numero), cpf: '', cliente: '',
+          tipo_produto: '', status: '', identificador_usuario: usuarioId,
+          items_per_page: 10, ordem: ''
+        })
+      });
+      const listarData = await listarResp.json();
+
+      if (!listarData.contracts || listarData.contracts.length === 0) {
+        return { erro: 'Contrato não encontrado', listarData };
+      }
+
+      const tokenContrato = listarData.contracts[0].token;
+
+      // Passo 2: busca o detalhe completo (inclui status/historico)
+      const detalheResp = await fetch('https://backoffice.happyconsig.com.br/api/contratos/detalhe-contratos/', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ token_contrato: tokenContrato })
+      });
+      const detalheData = await detalheResp.json();
+
+      return { tokenContrato, detalheData };
+    }, { numero, token: bearerToken, usuarioId: identificadorUsuario });
+
+    return resultado;
+
+  } catch (e) {
+    return { erro: e.message };
+  } finally {
+    if (browser) await browser.close();
+  }
+}
+
+// GET /api-status?numero=1800368 — retorna JSON bruto da API do Happy
+app.get('/api-status', async (req, res) => {
+  const { numero } = req.query;
+  if (!numero) return res.status(400).json({ erro: 'Parâmetro obrigatório: numero' });
+  const resultado = await chamarAPIViaBrowser(numero);
+  res.json(resultado);
+});
+
 // GET /interceptar-api?numero=1800368 — descobre os endpoints REST do Happy
 app.get('/interceptar-api', async (req, res) => {
   const { numero } = req.query;
