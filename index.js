@@ -256,6 +256,95 @@ async function consultarProposta(numero) {
   }
 }
 
+// Intercepta as chamadas de API que o portal Happy faz internamente
+// Objetivo: descobrir os endpoints REST para chamar direto, sem Playwright
+async function interceptarAPI(numero) {
+  let browser;
+  const chamadas = [];
+
+  try {
+    browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    const page = await browser.newPage();
+    page.setDefaultTimeout(60000);
+
+    // Escuta TODAS as requisições de rede — captura URL, método e headers de auth
+    page.on('request', (req) => {
+      const url = req.url();
+      // Filtra só chamadas de API (não assets estáticos)
+      if (!url.includes('.js') && !url.includes('.css') && !url.includes('.png') &&
+          !url.includes('fonts') && !url.includes('hotjar') && !url.includes('onesignal')) {
+        chamadas.push({
+          metodo: req.method(),
+          url: url,
+          authHeader: req.headers()['authorization'] || null,
+          contentType: req.headers()['content-type'] || null
+        });
+      }
+    });
+
+    // Login
+    await page.goto('https://portal.happyconsig.com.br', { waitUntil: 'networkidle' });
+    await page.getByLabel('CPF').fill(CPF);
+    await page.getByLabel('Senha').fill(SENHA);
+    await page.getByRole('button', { name: 'Continuar' }).click();
+    await page.waitForTimeout(3000);
+
+    const loginResult = await Promise.race([
+      page.waitForSelector('text=Contratos', { state: 'visible', timeout: 90000 }).then(() => 'ok'),
+      page.waitForSelector('canvas', { state: 'visible', timeout: 90000 }).then(() => 'qr'),
+    ]).catch(() => 'timeout');
+
+    if (loginResult !== 'ok') return { erro: 'Login falhou' };
+
+    await page.evaluate(() => { const el = document.getElementById('onesignal-slidedown-container'); if (el) el.style.display = 'none'; });
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+
+    // Navega para a proposta — captura as chamadas dessa navegação
+    await page.getByText('Contratos', { exact: true }).click();
+    await page.waitForSelector('button:has-text("Relatórios")', { state: 'visible', timeout: 15000 });
+    await page.locator('input.ant-input:not([type="hidden"])').first().fill(String(numero));
+    await page.getByRole('button', { name: /Pesquisar/ }).click();
+    await page.waitForLoadState('networkidle', { timeout: 15000 });
+    await page.waitForSelector('tr.ant-table-row', { state: 'visible', timeout: 15000 });
+    await page.locator('tr.ant-table-row td').first().click();
+    await page.waitForSelector('[role="dialog"]', { state: 'visible', timeout: 15000 });
+    await page.waitForTimeout(500);
+    await page.getByRole('tab', { name: 'Status' }).click();
+    await page.waitForTimeout(2000); // espera chamadas do Status carregarem
+
+    // Filtra só as chamadas relevantes (que parecem API de dados)
+    const apisCandidatas = chamadas.filter(c =>
+      c.url.includes('/api/') || c.url.includes('/v1/') || c.url.includes('/v2/') ||
+      c.url.includes('happyconsig') || c.url.includes('happy')
+    );
+
+    return {
+      numero,
+      total_chamadas: chamadas.length,
+      apis_candidatas: apisCandidatas,
+      todas_as_chamadas: chamadas // para análise completa
+    };
+
+  } catch (e) {
+    return { erro: e.message };
+  } finally {
+    if (browser) await browser.close();
+  }
+}
+
+// GET /interceptar-api?numero=1800368 — descobre os endpoints REST do Happy
+app.get('/interceptar-api', async (req, res) => {
+  const { numero } = req.query;
+  if (!numero) return res.status(400).json({ erro: 'Parâmetro obrigatório: numero' });
+  const resultado = await interceptarAPI(numero);
+  res.json(resultado);
+});
+
 // Rota de teste: GET /consultar-proposta?numero=1800368
 // Resposta síncrona — pode demorar ~30-40s (login + navegação)
 app.get('/consultar-proposta', async (req, res) => {
