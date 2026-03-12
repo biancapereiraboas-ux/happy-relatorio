@@ -9,9 +9,8 @@ RUN npm install
 # Copia o código
 COPY . .
 
-# Usa o Chromium do sistema operacional (já vem na imagem do Playwright)
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+# Usa o Chromium que já vem instalado na imagem oficial do Playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 EXPOSE 3000
 
