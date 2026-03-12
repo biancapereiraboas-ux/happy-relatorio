@@ -271,18 +271,22 @@ async function interceptarAPI(numero) {
     const page = await browser.newPage();
     page.setDefaultTimeout(60000);
 
-    // Escuta TODAS as requisições de rede — captura URL, método e headers de auth
-    page.on('request', (req) => {
-      const url = req.url();
-      // Filtra só chamadas de API (não assets estáticos)
-      if (!url.includes('.js') && !url.includes('.css') && !url.includes('.png') &&
-          !url.includes('fonts') && !url.includes('hotjar') && !url.includes('onesignal')) {
-        chamadas.push({
-          metodo: req.method(),
-          url: url,
-          authHeader: req.headers()['authorization'] || null,
-          contentType: req.headers()['content-type'] || null
-        });
+    // Escuta requests E responses — captura bodies para entender o formato da API
+    page.on('response', async (response) => {
+      const url = response.url();
+      if (url.includes('backoffice.happyconsig.com.br/api/')) {
+        try {
+          const reqBody = response.request().postData() || null;
+          const respBody = await response.json().catch(() => null);
+          chamadas.push({
+            metodo: response.request().method(),
+            url: url,
+            status: response.status(),
+            authHeader: response.request().headers()['authorization'] || null,
+            requestBody: reqBody ? JSON.parse(reqBody) : null,
+            responseBody: respBody
+          });
+        } catch(e) {}
       }
     });
 
@@ -317,17 +321,10 @@ async function interceptarAPI(numero) {
     await page.getByRole('tab', { name: 'Status' }).click();
     await page.waitForTimeout(2000); // espera chamadas do Status carregarem
 
-    // Filtra só as chamadas relevantes (que parecem API de dados)
-    const apisCandidatas = chamadas.filter(c =>
-      c.url.includes('/api/') || c.url.includes('/v1/') || c.url.includes('/v2/') ||
-      c.url.includes('happyconsig') || c.url.includes('happy')
-    );
-
     return {
       numero,
       total_chamadas: chamadas.length,
-      apis_candidatas: apisCandidatas,
-      todas_as_chamadas: chamadas // para análise completa
+      apis_backoffice: chamadas
     };
 
   } catch (e) {
