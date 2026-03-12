@@ -233,8 +233,8 @@ async function consultarProposta(numero) {
     // Aguarda a linha real de dados aparecer (ignora a linha fantasma ant-table-measure-row)
     await page.waitForSelector('tr.ant-table-row', { state: 'visible', timeout: 15000 });
 
-    // Clica no primeiro link da linha de dados (o número azul da proposta)
-    await page.locator('tr.ant-table-row a').first().click();
+    // Clica na primeira célula da linha (o número azul não é um <a> mas abre o modal no click da linha)
+    await page.locator('tr.ant-table-row td').first().click();
     await page.waitForSelector('[role="dialog"]', { state: 'visible', timeout: 15000 });
     await page.waitForTimeout(500);
 
