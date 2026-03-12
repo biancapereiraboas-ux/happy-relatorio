@@ -4,75 +4,77 @@ const { chromium } = require('playwright');
 const app = express();
 app.use(express.json());
 
-// Lê as credenciais das variáveis de ambiente (nunca no código)
-const CPF = process.env.HAPPY_CPF;
+const PORT = process.env.PORT || 3000;
+const CPF   = process.env.HAPPY_CPF;
 const SENHA = process.env.HAPPY_SENHA;
 const API_TOKEN = process.env.API_TOKEN;
 
-// Middleware de autenticação: bloqueia chamadas sem token
-app.use((req, res, next) => {
-  const token = req.headers['x-api-token'];
-  if (token !== API_TOKEN) {
-    return res.status(401).json({ erro: 'Token inválido' });
-  }
-  next();
-});
+// Função principal do Playwright — roda em background (sem await)
+async function gerarRelatorio() {
+  console.log(`[${new Date().toISOString()}] Iniciando geração de relatório...`);
 
-// Endpoint principal — n8n vai chamar este POST /gerar-relatorio
-app.post('/gerar-relatorio', async (req, res) => {
-  console.log('Iniciando automação...');
-
-  let navegador;
+  let browser;
   try {
-    // Abre o Chromium do sistema (Railway já tem instalado)
-    navegador = await chromium.launch({
-      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+    browser = await chromium.launch({
       headless: true,
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     });
+    const page = await browser.newPage();
+    page.setDefaultTimeout(60000);
 
-    const pagina = await navegador.newPage();
-
-    // P1 — Abre o portal
-    await pagina.goto('https://portal.happyconsig.com.br', { waitUntil: 'networkidle' });
-    console.log('Portal aberto');
+    // P1 — Abrir portal
+    console.log(`[P1] Abrindo portal...`);
+    await page.goto('https://portal.happyconsig.com.br', { waitUntil: 'networkidle' });
+    console.log(`[P1] Portal aberto.`);
 
     // P2 — Login
-    await pagina.getByLabel('CPF').fill(CPF);
-    await pagina.getByLabel('Senha').fill(SENHA);
-    await pagina.getByRole('button', { name: 'Continuar' }).click();
-    await pagina.waitForTimeout(3000);
+    console.log(`[P2] Fazendo login...`);
+    await page.getByLabel('CPF').fill(CPF);
+    await page.getByLabel('Senha').fill(SENHA);
+    await page.getByRole('button', { name: 'Continuar' }).click();
+    console.log(`[P2] Botão Continuar clicado.`);
+    await page.waitForTimeout(3000);
+    console.log(`[P2] URL após login: ${page.url()}`);
 
-    // Aguarda o menu lateral carregar
-    await pagina.waitForSelector('text=Contratos', { state: 'visible', timeout: 90000 });
-    console.log('Login feito, sidebar carregada');
+    // Aguarda sidebar
+    await page.waitForSelector('text=Contratos', { state: 'visible', timeout: 90000 });
+    console.log(`[P2] Sidebar carregado.`);
 
-    // Fecha popup de boas-vindas se aparecer
-    await pagina.keyboard.press('Escape');
-    await pagina.waitForTimeout(500);
+    // Fecha popup de boas-vindas
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+    console.log(`[P2] Popup fechado (se havia).`);
 
-    // Remove o popup do OneSignal (bloqueava cliques no menu)
-    await pagina.evaluate(() => {
+    // Remove OneSignal (bloqueava cliques no sidebar)
+    await page.evaluate(() => {
       const el = document.getElementById('onesignal-slidedown-container');
       if (el) el.style.display = 'none';
     });
+    await page.waitForTimeout(300);
+    console.log(`[P2] OneSignal removido (se havia).`);
 
-    // P3 — Clica em Contratos no menu lateral
-    await pagina.getByText('Contratos', { exact: true }).click();
-    await pagina.waitForSelector('button:has-text("Relatórios")', { state: 'visible', timeout: 15000 });
-    console.log('Página de contratos aberta');
+    // P3 — Navegar para Contratos
+    console.log(`[P3] Clicando em Contratos...`);
+    await page.getByText('Contratos', { exact: true }).click();
+    await page.waitForSelector('button:has-text("Relatórios")', { state: 'visible', timeout: 15000 });
+    console.log(`[P3] Contratos aberto. URL: ${page.url()}`);
 
-    // P4 — Abre o modal de Relatórios
-    await pagina.getByRole('button', { name: /Relatórios/ }).click();
-    await pagina.waitForSelector('[role="dialog"]', { state: 'visible', timeout: 15000 });
-    console.log('Modal de relatórios aberto');
+    // P4 — Abrir modal Relatórios
+    console.log(`[P4] Clicando em Relatórios...`);
+    await page.getByRole('button', { name: /Relatórios/ }).click();
+    await page.waitForSelector('[role="dialog"]', { state: 'visible', timeout: 15000 });
+    console.log(`[P4] Modal aberto.`);
 
-    // P5 — Seleciona o tipo "Digitação"
-    // Ant Design escuta mousedown (não click comum)
-    await pagina.locator('[role="dialog"] .ant-select .ant-select-selector').first().click();
-    await pagina.waitForTimeout(800);
-
-    await pagina.evaluate(() => {
+    // P5 — Selecionar tipo Digitação
+    console.log(`[P5] Selecionando tipo Digitação...`);
+    await page.locator('[role="dialog"] .ant-select .ant-select-selector').first().click();
+    await page.waitForTimeout(800);
+    const opcoes = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('.ant-select-item-option')).map(o => o.textContent.trim())
+    );
+    console.log(`[P5] Opções disponíveis: ${JSON.stringify(opcoes)}`);
+    await page.evaluate(() => {
       const items = document.querySelectorAll('.ant-select-item-option');
       const item = Array.from(items).find(i => i.textContent.trim() === 'Digitação');
       if (item) {
@@ -80,55 +82,76 @@ app.post('/gerar-relatorio', async (req, res) => {
         item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       }
     });
-    await pagina.waitForTimeout(500);
-    console.log('Tipo "Digitação" selecionado');
+    await page.waitForTimeout(500);
+    const valorSelecionado = await page.locator('[role="dialog"] .ant-select-selection-item').textContent().catch(() => 'vazio');
+    console.log(`[P5] Valor selecionado: "${valorSelecionado}"`);
 
-    // P6 — Seleciona o período "Últimos 31 dias"
-    const inputs = pagina.locator('.ant-picker-range input');
+    // P6 — Selecionar período "Últimos 31 dias"
+    console.log(`[P6] Abrindo calendário...`);
+    const inputs = page.locator('.ant-picker-range input');
     await inputs.first().dispatchEvent('click');
-    await pagina.waitForTimeout(800);
+    await page.waitForTimeout(800);
+    console.log(`[P6] Clicando em "Últimos 31 dias"...`);
+    await page.getByText('Últimos 31 dias').click({ force: true });
+    await page.waitForTimeout(500);
+    // Fecha o calendário (obrigatório — Ant Design mantém aberto após preset)
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('.ant-picker-dropdown', { state: 'hidden', timeout: 5000 }).catch(() => null);
+    await page.waitForTimeout(300);
+    const v1 = await inputs.first().inputValue().catch(() => 'erro');
+    const v2 = await inputs.last().inputValue().catch(() => 'erro');
+    console.log(`[P6] Valores: "${v1}" | "${v2}"`);
+    console.log(`[P6] Período selecionado.`);
 
-    // Ant Design preset também precisa de dispatchEvent (não click comum)
-    await pagina.evaluate(() => {
-      const items = document.querySelectorAll('.ant-picker-preset > button, .ant-picker-ranges .ant-tag');
-      const item = Array.from(items).find(i => i.textContent.trim().includes('31 dias'));
-      if (item) {
-        item.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-        item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-      }
-    });
-    await pagina.waitForTimeout(500);
-
-    // Fecha o calendário (obrigatório — Ant Design deixa aberto após preset)
-    await pagina.keyboard.press('Escape');
-    await pagina.waitForSelector('.ant-picker-dropdown', { state: 'hidden', timeout: 5000 }).catch(() => null);
-    await pagina.waitForTimeout(300);
-    console.log('Período selecionado');
-
-    // P7 — Clica em "Gerar relatório"
-    await pagina.evaluate(() => {
+    // P7 — Clicar em "Gerar relatório"
+    console.log(`[P7] Clicando em Gerar relatório...`);
+    const botoesModal = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[role="dialog"] button')).map(b => b.textContent.trim())
+    );
+    console.log(`[P7] Botões no modal: ${JSON.stringify(botoesModal)}`);
+    await page.evaluate(() => {
       const btn = Array.from(document.querySelectorAll('[role="dialog"] button'))
         .find(b => /gerar relatório/i.test(b.textContent));
       if (btn) btn.click();
     });
 
-    // Aguarda o modal fechar (confirmação do servidor)
-    const sucesso = await pagina.waitForSelector('[role="dialog"]', { state: 'hidden', timeout: 60000 })
-      .then(() => true).catch(() => false);
+    await page.waitForTimeout(3000);
+    const conteudoModal = await page.locator('[role="dialog"]').textContent().catch(() => null);
+    console.log(`[P7] Conteúdo modal após clique: "${conteudoModal?.replace(/\s+/g, ' ').trim().substring(0, 300)}"`);
 
-    console.log('Automação concluída. Sucesso:', sucesso);
-    res.json({ sucesso, mensagem: sucesso ? 'Relatório gerado com sucesso' : 'Modal não fechou — verifique manualmente' });
+    const modalFechou = await page.waitForSelector('[role="dialog"]', { state: 'hidden', timeout: 60000 })
+      .then(() => true).catch(() => false);
+    console.log(`[P7] Modal fechou: ${modalFechou}`);
+
+    if (modalFechou) {
+      const confirmacao = await page.locator('.ant-message, .ant-notification').textContent().catch(() => null);
+      console.log(`[P7] Confirmação: "${confirmacao}"`);
+    }
+
+    console.log(`[${new Date().toISOString()}] Relatório solicitado com sucesso!`);
 
   } catch (erro) {
-    console.error('Erro na automação:', erro.message);
-    res.status(500).json({ sucesso: false, erro: erro.message });
+    console.error(`[${new Date().toISOString()}] Erro no Playwright:`, erro.message);
   } finally {
-    if (navegador) await navegador.close();
+    if (browser) await browser.close();
   }
+}
+
+// Middleware de autenticação
+app.use((req, res, next) => {
+  if (req.path === '/health') return next();
+  const token = req.headers['x-api-token'];
+  if (token !== API_TOKEN) return res.status(401).json({ erro: 'Token inválido' });
+  next();
 });
 
-// Healthcheck — Railway usa para saber se o serviço está vivo
+// Rota principal — responde 202 imediatamente, Playwright roda em background
+app.post('/gerar-relatorio', (req, res) => {
+  res.status(202).json({ sucesso: true, mensagem: 'Solicitação recebida. Relatório sendo gerado em background.' });
+  gerarRelatorio(); // sem await — não bloqueia
+});
+
+// Healthcheck
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-const PORTA = process.env.PORT || 3000;
-app.listen(PORTA, () => console.log(`Servidor rodando na porta ${PORTA}`));
+app.listen(PORT, () => console.log(`[Happy API] Rodando na porta ${PORT}`));
