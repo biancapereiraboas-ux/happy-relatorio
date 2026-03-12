@@ -224,8 +224,8 @@ async function consultarProposta(numero) {
     await page.waitForSelector('button:has-text("Relatórios")', { state: 'visible', timeout: 15000 });
 
     // Preenche o número do contrato e pesquisa
-    // Usa o primeiro input da página (campo "Número do Contrato")
-    await page.locator('input').first().fill(String(numero));
+    // Usa getByRole('textbox') para pegar só inputs visíveis e editáveis, ignorando os hidden
+    await page.getByRole('textbox').first().fill(String(numero));
     await page.getByRole('button', { name: /Pesquisar/ }).click();
     await page.waitForTimeout(2000);
 
