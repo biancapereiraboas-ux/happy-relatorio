@@ -1,0 +1,13 @@
+{
+  "name": "happy-relatorio",
+  "version": "1.0.0",
+  "description": "Automação de relatório de Digitação no Happy Consig",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "playwright": "^1.40.0"
+  }
+}
