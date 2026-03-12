@@ -9,6 +9,23 @@ const CPF   = process.env.HAPPY_CPF;
 const SENHA = process.env.HAPPY_SENHA;
 const API_TOKEN = process.env.API_TOKEN;
 
+// URL do webhook no n8n para alertar sobre QR/selfie
+const WEBHOOK_ALERTA_QR = 'https://n8n.appempresta.com.br/webhook/happy-qr-alerta';
+
+// Chama o webhook de alerta quando QR/selfie é detectado
+async function alertarQR() {
+  try {
+    const response = await fetch(WEBHOOK_ALERTA_QR, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo: 'QR Code detectado no login', data: new Date().toISOString() })
+    });
+    console.log(`[ALERTA] Webhook QR chamado — status: ${response.status}`);
+  } catch (e) {
+    console.error(`[ALERTA] Erro ao chamar webhook QR:`, e.message);
+  }
+}
+
 // Função principal do Playwright — roda em background (sem await)
 async function gerarRelatorio() {
   console.log(`[${new Date().toISOString()}] Iniciando geração de relatório...`);
@@ -37,8 +54,24 @@ async function gerarRelatorio() {
     await page.waitForTimeout(3000);
     console.log(`[P2] URL após login: ${page.url()}`);
 
-    // Aguarda sidebar
-    await page.waitForSelector('text=Contratos', { state: 'visible', timeout: 90000 });
+    // Aguarda sidebar OU tela de QR/selfie (limite de 30 acessos)
+    // Promise.race: o que resolver primeiro vence
+    const loginResult = await Promise.race([
+      page.waitForSelector('text=Contratos', { state: 'visible', timeout: 90000 }).then(() => 'ok'),
+      page.waitForSelector('canvas', { state: 'visible', timeout: 90000 }).then(() => 'qr'), // QR code é um <canvas>
+    ]).catch(() => 'timeout');
+
+    if (loginResult !== 'ok') {
+      // Confirma pelo texto da página se é realmente QR/selfie
+      const textoPage = await page.evaluate(() => document.body.innerText.toLowerCase());
+      const isQR = textoPage.includes('qr') || textoPage.includes('selfie') || textoPage.includes('verifica');
+      console.log(`[P2] Login não completou normalmente (resultado: ${loginResult}, QR detectado: ${isQR})`);
+      if (isQR) {
+        console.log(`[P2] Tela de QR/Selfie detectada! Enviando alerta para o Teams...`);
+        await alertarQR();
+      }
+      return; // encerra sem gerar relatório
+    }
     console.log(`[P2] Sidebar carregado.`);
 
     // Fecha popup de boas-vindas
