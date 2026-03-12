@@ -402,7 +402,14 @@ async function chamarAPIViaBrowser(numero) {
         return { erro: 'Contrato não encontrado', listarData };
       }
 
-      const tokenContrato = listarData.contracts[0].token;
+      // Retorna primeiro item para inspeção dos campos disponíveis
+      const primeiroContrato = listarData.contracts[0];
+      // Tenta variações comuns do campo de token
+      const tokenContrato = primeiroContrato.token || primeiroContrato.token_contrato || primeiroContrato.uuid || primeiroContrato.id;
+
+      if (!tokenContrato) {
+        return { erro: 'Campo token não encontrado', camposDisponiveis: Object.keys(primeiroContrato), primeiroContrato };
+      }
 
       // Passo 2: busca o detalhe completo (inclui status/historico)
       const detalheResp = await fetch('https://backoffice.happyconsig.com.br/api/contratos/detalhe-contratos/', {
