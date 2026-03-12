@@ -229,8 +229,9 @@ async function consultarProposta(numero) {
     await page.getByRole('button', { name: /Pesquisar/ }).click();
     await page.waitForTimeout(2000);
 
-    // Clica no número azul do resultado (link com o número da proposta)
-    await page.getByRole('link', { name: String(numero) }).first().click();
+    // Aguarda o link com o número aparecer na tabela de resultados e clica
+    await page.waitForSelector(`a:has-text("${numero}")`, { state: 'visible', timeout: 15000 });
+    await page.locator(`a:has-text("${numero}")`).first().click();
     await page.waitForSelector('[role="dialog"]', { state: 'visible', timeout: 15000 });
     await page.waitForTimeout(500);
 
