@@ -88,7 +88,15 @@ app.post('/gerar-relatorio', async (req, res) => {
     await inputs.first().dispatchEvent('click');
     await pagina.waitForTimeout(800);
 
-    await pagina.getByText('Últimos 31 dias').click({ force: true });
+    // Ant Design preset também precisa de dispatchEvent (não click comum)
+    await pagina.evaluate(() => {
+      const items = document.querySelectorAll('.ant-picker-preset > button, .ant-picker-ranges .ant-tag');
+      const item = Array.from(items).find(i => i.textContent.trim().includes('31 dias'));
+      if (item) {
+        item.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        item.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      }
+    });
     await pagina.waitForTimeout(500);
 
     // Fecha o calendário (obrigatório — Ant Design deixa aberto após preset)
