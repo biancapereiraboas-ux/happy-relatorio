@@ -178,6 +178,89 @@ app.use((req, res, next) => {
   next();
 });
 
+// Consulta o status de uma proposta específica no portal Happy
+// Recebe o número do contrato, retorna todas as fases da aba Status
+async function consultarProposta(numero) {
+  let browser;
+  try {
+    browser = await chromium.launch({
+      headless: true,
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    const page = await browser.newPage();
+    page.setDefaultTimeout(60000);
+
+    // Login
+    await page.goto('https://portal.happyconsig.com.br', { waitUntil: 'networkidle' });
+    await page.getByLabel('CPF').fill(CPF);
+    await page.getByLabel('Senha').fill(SENHA);
+    await page.getByRole('button', { name: 'Continuar' }).click();
+    await page.waitForTimeout(3000);
+
+    // Verifica QR/selfie
+    const loginResult = await Promise.race([
+      page.waitForSelector('text=Contratos', { state: 'visible', timeout: 90000 }).then(() => 'ok'),
+      page.waitForSelector('canvas', { state: 'visible', timeout: 90000 }).then(() => 'qr'),
+    ]).catch(() => 'timeout');
+
+    if (loginResult !== 'ok') {
+      const textoPage = await page.evaluate(() => document.body.innerText.toLowerCase());
+      const isQR = textoPage.includes('qr') || textoPage.includes('selfie') || textoPage.includes('verifica');
+      if (isQR) await alertarQR();
+      return { erro: 'Login não completou — QR/selfie detectado ou timeout' };
+    }
+
+    // Remove popup OneSignal
+    await page.evaluate(() => {
+      const el = document.getElementById('onesignal-slidedown-container');
+      if (el) el.style.display = 'none';
+    });
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+
+    // Navega para Contratos
+    await page.getByText('Contratos', { exact: true }).click();
+    await page.waitForSelector('button:has-text("Relatórios")', { state: 'visible', timeout: 15000 });
+
+    // Preenche o número do contrato e pesquisa
+    // Usa o primeiro input da página (campo "Número do Contrato")
+    await page.locator('input').first().fill(String(numero));
+    await page.getByRole('button', { name: /Pesquisar/ }).click();
+    await page.waitForTimeout(2000);
+
+    // Clica no número azul do resultado (link com o número da proposta)
+    await page.getByRole('link', { name: String(numero) }).first().click();
+    await page.waitForSelector('[role="dialog"]', { state: 'visible', timeout: 15000 });
+    await page.waitForTimeout(500);
+
+    // Clica na aba Status — acha por nome, não por posição (resolve o "botão que muda de lugar")
+    await page.getByRole('tab', { name: 'Status' }).click();
+    await page.waitForTimeout(1000);
+
+    // Lê todo o texto do modal — você processa o de-para no n8n
+    const conteudo = await page.locator('[role="dialog"]').evaluate(el => el.innerText);
+
+    console.log(`[CONSULTA] Proposta ${numero} lida com sucesso.`);
+    return { numero, conteudo };
+
+  } catch (e) {
+    console.error(`[CONSULTA] Erro ao consultar proposta ${numero}:`, e.message);
+    return { erro: e.message };
+  } finally {
+    if (browser) await browser.close();
+  }
+}
+
+// Rota de teste: GET /consultar-proposta?numero=1800368
+// Resposta síncrona — pode demorar ~30-40s (login + navegação)
+app.get('/consultar-proposta', async (req, res) => {
+  const { numero } = req.query;
+  if (!numero) return res.status(400).json({ erro: 'Parâmetro obrigatório: numero' });
+  const resultado = await consultarProposta(numero);
+  res.json(resultado);
+});
+
 // Rota principal — responde 202 imediatamente, Playwright roda em background
 app.post('/gerar-relatorio', (req, res) => {
   res.status(202).json({ sucesso: true, mensagem: 'Solicitação recebida. Relatório sendo gerado em background.' });
