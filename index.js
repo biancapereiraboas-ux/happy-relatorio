@@ -223,12 +223,15 @@ async function consultarProposta(numero) {
     await page.getByText('Contratos', { exact: true }).click();
     await page.waitForSelector('button:has-text("Relatórios")', { state: 'visible', timeout: 15000 });
 
-    // Preenche o número do contrato e clica em Pesquisar
-    await page.getByRole('textbox').first().fill(String(numero));
+    // Preenche o campo Número do Contrato usando o seletor específico do Ant Design
+    await page.locator('.ant-input').first().fill(String(numero));
+    // Clica em Pesquisar
     await page.getByRole('button', { name: /Pesquisar/ }).click();
+    // Aguarda o AJAX da busca completar (networkidle = sem mais requisições pendentes)
+    await page.waitForLoadState('networkidle', { timeout: 15000 });
 
     // Aguarda a linha real de dados aparecer (ignora a linha fantasma ant-table-measure-row)
-    await page.waitForSelector('tr.ant-table-row a', { state: 'visible', timeout: 30000 });
+    await page.waitForSelector('tr.ant-table-row', { state: 'visible', timeout: 15000 });
 
     // Clica no primeiro link da linha de dados (o número azul da proposta)
     await page.locator('tr.ant-table-row a').first().click();
