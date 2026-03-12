@@ -223,8 +223,8 @@ async function consultarProposta(numero) {
     await page.getByText('Contratos', { exact: true }).click();
     await page.waitForSelector('button:has-text("Relatórios")', { state: 'visible', timeout: 15000 });
 
-    // Preenche o campo Número do Contrato usando o seletor específico do Ant Design
-    await page.locator('.ant-input').first().fill(String(numero));
+    // Preenche o campo Número do Contrato — exclui inputs hidden (paginação, etc.)
+    await page.locator('input.ant-input:not([type="hidden"])').first().fill(String(numero));
     // Clica em Pesquisar
     await page.getByRole('button', { name: /Pesquisar/ }).click();
     // Aguarda o AJAX da busca completar (networkidle = sem mais requisições pendentes)
