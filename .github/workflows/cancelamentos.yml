@@ -1,0 +1,38 @@
+name: Happy — Cancelamentos
+
+on:
+  # Acionado pelo N8N via API do GitHub
+  workflow_dispatch:
+  # Roda automaticamente de seg a sex às 8h (horário de Brasília = 11h UTC)
+  schedule:
+    - cron: '0 11 * * 1-5'
+
+jobs:
+  rodar-cancelamentos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar dependências
+        run: npm install
+
+      - name: Instalar Chromium (Playwright)
+        run: npx playwright install chromium --with-deps
+
+      - name: Rodar cancelamentos Happy
+        env:
+          SUPABASE_URL:  ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:  ${{ secrets.SUPABASE_KEY }}
+          HAPPY_CPF:     ${{ secrets.HAPPY_CPF }}
+          HAPPY_SENHA:   ${{ secrets.HAPPY_SENHA }}
+          HAPPY_CPF_2:   ${{ secrets.HAPPY_CPF_2 }}
+          HAPPY_SENHA_2: ${{ secrets.HAPPY_SENHA_2 }}
+        run: node cancelamentos.js
