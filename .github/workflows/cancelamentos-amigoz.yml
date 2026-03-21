@@ -1,0 +1,38 @@
+name: Amigoz — Cancelamentos
+
+on:
+  # Acionado pelo N8N via API do GitHub
+  workflow_dispatch:
+  # Roda automaticamente de seg a sex às 8h (horário de Brasília = 11h UTC)
+  schedule:
+    - cron: '0 11 * * 1-5'
+
+jobs:
+  rodar-cancelamentos:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar dependências
+        run: npm install
+
+      - name: Instalar Chromium (Playwright)
+        run: npx playwright install chromium --with-deps
+
+      - name: Rodar cancelamentos Amigoz
+        env:
+          SUPABASE_URL:       ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:       ${{ secrets.SUPABASE_KEY }}
+          AMIGOZ_CPF_LOGIN:   ${{ secrets.AMIGOZ_CPF_LOGIN }}
+          AMIGOZ_CPF_API:     ${{ secrets.AMIGOZ_CPF_API }}
+          AMIGOZ_SENHA:       ${{ secrets.AMIGOZ_SENHA }}
+          AMIGOZ_CORBAN_ID:   ${{ secrets.AMIGOZ_CORBAN_ID }}
+        run: node cancelamentos-amigoz.js
