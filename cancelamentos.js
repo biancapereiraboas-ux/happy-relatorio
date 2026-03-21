@@ -25,7 +25,6 @@ const SENHA2 = process.env.HAPPY_SENHA_2;
 
 // Webhook N8N para avisar quando terminar ou se pedir QR
 // Deixe vazio ('') para desativar notificacoes
-const WEBHOOK_CONCLUSAO        = 'https://n8n.appempresta.com.br/webhook/cancelamentos-happy-conclusao';
 const WEBHOOK_QR               = 'https://n8n.appempresta.com.br/webhook/happy-qr-alerta';
 const WEBHOOK_FLUXO_FINALIZADO = 'https://n8n.appempresta.com.br/webhook/Fluxo-Cancelamento-Finalizado';
 
@@ -513,12 +512,10 @@ async function rodarRobo() {
     if (naoDescobertos.length   > 0) log('  Fases pendentes:   ' + naoDescobertos.join(', '));
     log('==============================================');
 
-    await notificar(WEBHOOK_CONCLUSAO, resumo);
     await notificar(WEBHOOK_FLUXO_FINALIZADO, resumo);
 
   } catch (e) {
     log('[ERRO GERAL] ' + e.message);
-    await notificar(WEBHOOK_CONCLUSAO, { erro: e.message, data: new Date().toISOString() });
     await notificar(WEBHOOK_FLUXO_FINALIZADO, { erro: e.message, data: new Date().toISOString() });
   } finally {
     if (browser) await browser.close();
