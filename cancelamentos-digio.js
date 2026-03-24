@@ -47,10 +47,24 @@ async function rodar() {
     log('[1] Abrindo portal Digio...');
     await page.goto(URL_BASE, { waitUntil: 'networkidle' });
 
-    log('[2] Fazendo login...');
+    log('[2] Aguardando formulário de login renderizar (JS)...');
+    // O formulário é renderizado via JavaScript — precisa esperar aparecer
+    await page.waitForSelector(
+      'input[type="text"], input[id*="Usuario"], input[name*="Usuario"]',
+      { timeout: 30000 }
+    );
+    await page.screenshot({ path: 'screenshot-login.png' });
+    log('[2] Formulário visível. Preenchendo credenciais...');
+
     await page.locator('input[name*="Usuario"], input[id*="Usuario"], input[type="text"]').first().fill(LOGIN);
     await page.locator('input[name*="Senha"], input[id*="Senha"], input[type="password"]').first().fill(SENHA);
-    await page.locator('input[value="Entrar"], a:has-text("Entrar"), span:has-text("Entrar")').first().click();
+
+    // Aguarda o botão Entrar estar visível antes de clicar
+    await page.waitForSelector(
+      'input[value="Entrar"], button:has-text("Entrar"), a:has-text("Entrar"), span:has-text("Entrar")',
+      { timeout: 15000 }
+    );
+    await page.locator('input[value="Entrar"], button:has-text("Entrar"), a:has-text("Entrar"), span:has-text("Entrar")').first().click();
     await page.waitForLoadState('networkidle');
 
     // Extrai o FISession da URL atual

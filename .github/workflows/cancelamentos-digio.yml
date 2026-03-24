@@ -33,10 +33,12 @@ jobs:
           DIGIO_SENHA: ${{ secrets.DIGIO_SENHA }}
         run: node cancelamentos-digio.js
 
-      - name: Salvar relatório como artifact (diagnóstico)
+      - name: Salvar relatório e screenshots (diagnóstico)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: relatorio-digio
-          path: relatorio-digio.xlsx
+          name: digio-artifacts
+          path: |
+            relatorio-digio.xlsx
+            screenshot-login.png
           retention-days: 3
