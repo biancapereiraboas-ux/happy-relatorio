@@ -1,0 +1,42 @@
+name: Digio — Cancelamentos
+
+on:
+  # Acionado pelo N8N via API do GitHub
+  workflow_dispatch:
+  # Roda automaticamente de seg a sex às 8h (horário de Brasília = 11h UTC)
+  schedule:
+    - cron: '0 11 * * 1-5'
+
+jobs:
+  rodar-cancelamentos:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar dependências
+        run: npm install
+
+      - name: Instalar Chromium (Playwright)
+        run: npx playwright install chromium --with-deps
+
+      - name: Rodar cancelamentos Digio
+        env:
+          DIGIO_LOGIN: ${{ secrets.DIGIO_LOGIN }}
+          DIGIO_SENHA: ${{ secrets.DIGIO_SENHA }}
+        run: node cancelamentos-digio.js
+
+      - name: Salvar relatório como artifact (diagnóstico)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relatorio-digio
+          path: relatorio-digio.xlsx
+          retention-days: 3
