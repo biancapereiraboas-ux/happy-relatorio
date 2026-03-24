@@ -59,13 +59,10 @@ async function rodar() {
     await page.locator('input[name*="Usuario"], input[id*="Usuario"], input[type="text"]').first().fill(LOGIN);
     await page.locator('input[name*="Senha"], input[id*="Senha"], input[type="password"]').first().fill(SENHA);
 
-    // Aguarda o botão Entrar estar visível antes de clicar
-    await page.waitForSelector(
-      'input[value="Entrar"], button:has-text("Entrar"), a:has-text("Entrar"), span:has-text("Entrar")',
-      { timeout: 15000 }
-    );
-    await page.locator('input[value="Entrar"], button:has-text("Entrar"), a:has-text("Entrar"), span:has-text("Entrar")').first().click();
-    await page.waitForLoadState('networkidle');
+    // Clica no link "Entrar" e aguarda a URL mudar para a área logada (FISession)
+    // Não usa networkidle pois Dynatrace mantém requests em background eternamente
+    await page.getByText('Entrar').first().click();
+    await page.waitForURL('**/WebAutorizador/**', { timeout: 30000 });
 
     // Extrai o FISession da URL atual
     const urlAtual  = page.url();
