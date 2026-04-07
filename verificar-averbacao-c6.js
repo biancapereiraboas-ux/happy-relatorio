@@ -268,57 +268,37 @@ async function rodar() {
   let fiSession = '';
 
   try {
-    if (sessaoPath) {
-      // 3a. Com sessão — navega pela URL base para pegar FISession
-      // (necessário: o portal ASP.NET precisa do FISession para renderizar os formulários)
-      log('[1] Carregando sessão salva — navegando pela URL base para obter FISession...');
-      await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
-      await page.waitForLoadState('networkidle').catch(() => {});
-      await page.screenshot({ path: 'screenshot-login-c6.png' });
-      log('[1] URL atual: ' + page.url());
+    // Com ou sem sessão: sempre faz login pra obter FISession
+    // A sessão salva tem os cookies do Cloudflare — bypassa o bloqueio
+    // O login em si é necessário pra o portal gerar o FISession
+    log('[1] Abrindo portal C6...');
+    await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+    await page.screenshot({ path: 'screenshot-login-c6.png' });
+    log('[1] URL atual: ' + page.url());
 
-      // Verifica se sessão ainda é válida
-      const url = page.url();
-      if (!url.includes('WebAutorizador') || url.includes('Login')) {
-        throw new Error('Sess\u00e3o expirada — rode SALVAR-SESSAO.bat para renovar');
-      }
-
-      // Extrai FISession — tenta em 3 lugares diferentes
+    // Se já está autenticado (sessão válida), o portal redireciona direto sem pedir login
+    if (!page.url().includes('Login') && page.url().includes('WebAutorizador')) {
       fiSession = new URL(page.url()).searchParams.get('FISession') || '';
-
       if (!fiSession) {
-        // Links de menu da página autenticada contêm FISession (ex: href="...?FISession=abc123")
         fiSession = await page.evaluate(() => {
           const links = Array.from(document.querySelectorAll('a[href*="FISession"]'));
           if (links.length > 0) {
             const m = (links[0].href || '').match(/FISession=([a-zA-Z0-9]+)/);
             return m ? m[1] : '';
           }
-          // Tenta também em hidden inputs e scripts inline
-          const input = document.querySelector('input[name="FISession"], input[id="FISession"]');
-          if (input) return input.value;
-          const scriptMatch = document.body.innerHTML.match(/FISession[=\\"]+([a-zA-Z0-9]{8,})/);
-          return scriptMatch ? scriptMatch[1] : '';
+          return '';
         });
       }
+      log('[1] Sessão ativa, FISession: ' + (fiSession || '(vazio)'));
+    }
 
-      log('[1] Sessão OK! FISession: ' + (fiSession || '(vazio — página pode não ter links com FISession)'));
-      if (!fiSession) {
-        log('[1] AVISO: sem FISession — esteiras podem não renderizar. Verifique screenshot-login-c6.png');
-      }
-
-    } else {
-      // 3b. Sem sessão — faz login normal
-      log('[1] Abrindo portal C6...');
-      await page.goto(URL_BASE, { waitUntil: 'networkidle', timeout: 60000 }).catch(() => {});
-      await page.waitForTimeout(3000);
-      await page.screenshot({ path: 'screenshot-login-c6.png' });
-      log('[1] URL atual: ' + page.url());
-
+    // Se FISession ainda vazio, faz login para obtê-lo
+    if (!fiSession) {
+      log('[2] FISession não obtido passivamente — fazendo login para gerá-lo...');
       await page.waitForSelector('input[type="text"], input[type="password"]', { timeout: 30000 });
       await page.waitForTimeout(1000);
 
-      log('[2] Fazendo login...');
       const campoUsuario = page.locator('input[name*="Usuario"], input[id*="Usuario"], input[type="text"]').first();
       await campoUsuario.click();
       await campoUsuario.pressSequentially(LOGIN, { delay: 80 });
@@ -335,6 +315,10 @@ async function rodar() {
 
       fiSession = new URL(page.url()).searchParams.get('FISession') || '';
       log('[2] Login OK! FISession: ' + fiSession);
+
+      if (!fiSession) {
+        throw new Error('Login conclu\u00eddo mas FISession n\u00e3o encontrado na URL. URL atual: ' + page.url());
+      }
     }
 
     // 4. Verifica cada proposta
