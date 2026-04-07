@@ -1,0 +1,36 @@
+name: C6 — Verificar Averbação
+
+on:
+  # Roda seg a sex às 9h BRT (12h UTC) — depois do raspar-propostas enviar dados ao N8N
+  schedule:
+    - cron: '0 12 * * 1-5'
+  # Permite rodar manualmente pela tela do GitHub Actions
+  workflow_dispatch:
+
+jobs:
+  verificar-averbacao:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar dependências
+        run: npm install
+
+      - name: Instalar Chromium (Playwright)
+        run: npx playwright install chromium --with-deps
+
+      - name: Verificar averbações C6
+        env:
+          C6_LOGIN: ${{ secrets.C6_LOGIN }}
+          C6_SENHA: ${{ secrets.C6_SENHA }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: node verificar-averbacao-c6.js
