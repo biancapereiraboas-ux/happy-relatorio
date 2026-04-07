@@ -235,6 +235,17 @@ async function rodar() {
     await page.waitForTimeout(3000);
     await page.screenshot({ path: 'screenshot-login-c6.png' });
     log('[1] URL atual: ' + page.url());
+
+    // Fecha modal/aviso inicial se existir (botão OK, Fechar, etc.)
+    const botaoOk = page.locator('button, a, input[type="button"]').filter({
+      hasText: /^(OK|Ok|Fechar|Aceitar|Continuar|Close)$/i
+    }).first();
+    if (await botaoOk.count()) {
+      log('[1] Modal inicial detectado — clicando OK...');
+      await botaoOk.click().catch(() => {});
+      await page.waitForTimeout(2000);
+    }
+
     await page.waitForSelector('input[type="text"], input[type="password"]', { timeout: 30000 });
     await page.waitForTimeout(1000);
 
