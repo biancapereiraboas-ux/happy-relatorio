@@ -24,8 +24,8 @@ jobs:
       - name: Instalar dependências
         run: npm install
 
-      - name: Instalar Chromium (Playwright)
-        run: npx playwright install chromium --with-deps
+      - name: Instalar Chrome (Playwright)
+        run: npx playwright install chrome --with-deps
 
       - name: Verificar averbações C6
         env:

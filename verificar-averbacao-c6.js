@@ -188,6 +188,7 @@ async function rodar() {
   // 2. Inicia browser (mesmo setup testado no buscar-nu.js do C6)
   const browser = await chromium.launch({
     headless: !HEADED,
+    channel: 'chrome', // Chrome real — evita bloqueio Cloudflare no GitHub Actions
     args: [
       '--no-sandbox',
       '--disable-blink-features=AutomationControlled',
