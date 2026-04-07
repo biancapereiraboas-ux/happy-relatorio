@@ -7,12 +7,27 @@
 
 require('dotenv').config();
 const { chromium } = require('playwright');
+const fs = require('fs');
 
 const LOGIN    = process.env.C6_LOGIN;
 const SENHA    = process.env.C6_SENHA;
 const HEADED   = process.env.HEADED === '1';
 const SUPA_URL = process.env.SUPABASE_URL;
 const SUPA_KEY = process.env.SUPABASE_KEY;
+
+// Sessão salva: GitHub Actions passa via env C6_SESSION (base64)
+// Local: lê session-c6.json direto se existir
+function carregarSessao() {
+  // GitHub Actions: decodifica base64 da env
+  if (process.env.C6_SESSION) {
+    const json = Buffer.from(process.env.C6_SESSION, 'base64').toString('utf-8');
+    fs.writeFileSync('/tmp/session-c6.json', json);
+    return '/tmp/session-c6.json';
+  }
+  // Local: usa arquivo direto
+  if (fs.existsSync('session-c6.json')) return 'session-c6.json';
+  return null;
+}
 
 const URL_BASE           = 'https://c6.c6consig.com.br/WebAutorizador/';
 const URL_ANDAMENTO      = 'https://c6.c6consig.com.br/WebAutorizador/MenuWeb/Esteira/AprovacaoConsulta/UI.AprovacaoConsultaAnd.aspx';
@@ -185,25 +200,30 @@ async function rodar() {
 
   log('[0] ' + propostas.length + ' proposta(s): ' + propostas.map(p => p.proposta).join(', '));
 
-  // 2. Inicia browser (mesmo setup testado no buscar-nu.js do C6)
+  // 2. Verifica se tem sessão salva
+  const sessaoPath = carregarSessao();
+  log('[0] Sessão: ' + (sessaoPath ? 'encontrada (' + sessaoPath + ')' : 'não encontrada — vai fazer login'));
+
   const browser = await chromium.launch({
     headless: !HEADED,
-    channel: 'chrome', // Chrome real — evita bloqueio Cloudflare no GitHub Actions
+    channel: 'chrome',
     args: [
       '--no-sandbox',
       '--disable-blink-features=AutomationControlled',
       '--no-first-run',
       '--disable-default-apps',
-      '--disable-features=ExternalProtocolDialog',
-      '--deny-permission-prompts',
     ],
   });
 
-  const context = await browser.newContext({
+  // Carrega sessão salva se disponível — pula login e Cloudflare
+  const contextOptions = {
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     viewport: { width: 1280, height: 900 },
     locale: 'pt-BR',
-  });
+  };
+  if (sessaoPath) contextOptions.storageState = sessaoPath;
+
+  const context = await browser.newContext(contextOptions);
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   });
@@ -211,7 +231,6 @@ async function rodar() {
   const page = await context.newPage();
   page.setDefaultTimeout(60000);
 
-  // Aceita dialog "Usuário já autenticado em outra estação"
   page.on('dialog', async dialog => {
     const msg = dialog.message();
     if (msg.includes('autenticado') || msg.includes('desconectar') || msg.includes('esta\u00e7\u00e3o')) {
@@ -222,7 +241,6 @@ async function rodar() {
     }
   });
 
-  // Bloqueia SignalR local
   await page.route('http://localhost/**', route => route.abort());
   await page.route('ws://localhost/**',   route => route.abort());
 
@@ -230,43 +248,51 @@ async function rodar() {
   let fiSession = '';
 
   try {
-    // 3. Login — mesmo método testado e funcionando no C6
-    log('[1] Abrindo portal C6...');
-    await page.goto(URL_BASE, { waitUntil: 'networkidle', timeout: 60000 }).catch(() => {});
-    await page.waitForTimeout(3000);
-    await page.screenshot({ path: 'screenshot-login-c6.png' });
-    log('[1] URL atual: ' + page.url());
+    if (sessaoPath) {
+      // 3a. Com sessão — navega direto pra área autenticada
+      log('[1] Carregando sessão salva — navegando direto...');
+      await page.goto(URL_ANDAMENTO, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.waitForLoadState('networkidle').catch(() => {});
+      await page.screenshot({ path: 'screenshot-login-c6.png' });
+      log('[1] URL atual: ' + page.url());
 
-    // Fecha modal/aviso inicial se existir (botão OK, Fechar, etc.)
-    const botaoOk = page.locator('button, a, input[type="button"]').filter({
-      hasText: /^(OK|Ok|Fechar|Aceitar|Continuar|Close)$/i
-    }).first();
-    if (await botaoOk.count()) {
-      log('[1] Modal inicial detectado — clicando OK...');
-      await botaoOk.click().catch(() => {});
-      await page.waitForTimeout(2000);
+      // Verifica se sessão ainda é válida (deve estar na área autenticada)
+      const url = page.url();
+      if (!url.includes('WebAutorizador') || url.includes('Login')) {
+        throw new Error('Sess\u00e3o expirada — rode SALVAR-SESSAO.bat para renovar');
+      }
+      fiSession = new URL(page.url()).searchParams.get('FISession') || '';
+      log('[1] Sess\u00e3o OK! FISession: ' + fiSession);
+
+    } else {
+      // 3b. Sem sessão — faz login normal
+      log('[1] Abrindo portal C6...');
+      await page.goto(URL_BASE, { waitUntil: 'networkidle', timeout: 60000 }).catch(() => {});
+      await page.waitForTimeout(3000);
+      await page.screenshot({ path: 'screenshot-login-c6.png' });
+      log('[1] URL atual: ' + page.url());
+
+      await page.waitForSelector('input[type="text"], input[type="password"]', { timeout: 30000 });
+      await page.waitForTimeout(1000);
+
+      log('[2] Fazendo login...');
+      const campoUsuario = page.locator('input[name*="Usuario"], input[id*="Usuario"], input[type="text"]').first();
+      await campoUsuario.click();
+      await campoUsuario.pressSequentially(LOGIN, { delay: 80 });
+      await page.waitForTimeout(500);
+
+      const campoSenha = page.locator('input[name*="Senha"], input[id*="Senha"], input[type="password"]').first();
+      await campoSenha.click();
+      await campoSenha.pressSequentially(SENHA, { delay: 80 });
+      await page.waitForTimeout(400);
+
+      await page.getByText('Entrar').first().click();
+      await page.waitForURL('**/WebAutorizador/**', { timeout: 30000 });
+      await page.waitForLoadState('networkidle').catch(() => {});
+
+      fiSession = new URL(page.url()).searchParams.get('FISession') || '';
+      log('[2] Login OK! FISession: ' + fiSession);
     }
-
-    await page.waitForSelector('input[type="text"], input[type="password"]', { timeout: 30000 });
-    await page.waitForTimeout(1000);
-
-    log('[2] Fazendo login...');
-    const campoUsuario = page.locator('input[name*="Usuario"], input[id*="Usuario"], input[type="text"]').first();
-    await campoUsuario.click();
-    await campoUsuario.pressSequentially(LOGIN, { delay: 80 });
-    await page.waitForTimeout(500);
-
-    const campoSenha = page.locator('input[name*="Senha"], input[id*="Senha"], input[type="password"]').first();
-    await campoSenha.click();
-    await campoSenha.pressSequentially(SENHA, { delay: 80 });
-    await page.waitForTimeout(400);
-
-    await page.getByText('Entrar').first().click();
-    await page.waitForURL('**/WebAutorizador/**', { timeout: 30000 });
-    await page.waitForLoadState('networkidle').catch(() => {});
-
-    fiSession = new URL(page.url()).searchParams.get('FISession') || '';
-    log('[2] Login OK! FISession: ' + fiSession);
 
     // 4. Verifica cada proposta
     const mPago = mesAtual(); // ex: Abr/26

@@ -33,6 +33,7 @@ jobs:
           C6_SENHA: ${{ secrets.C6_SENHA }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          C6_SESSION: ${{ secrets.C6_SESSION }}
         run: node verificar-averbacao-c6.js
 
       - name: Salvar screenshot de debug
