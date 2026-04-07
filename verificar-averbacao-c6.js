@@ -15,18 +15,27 @@ const HEADED   = process.env.HEADED === '1';
 const SUPA_URL = process.env.SUPABASE_URL;
 const SUPA_KEY = process.env.SUPABASE_KEY;
 
-// Sessão salva: GitHub Actions passa via env C6_SESSION (base64)
-// Local: lê session-c6.json direto se existir
-function carregarSessao() {
-  // GitHub Actions: decodifica base64 da env
+// Carrega os cookies do Cloudflare da sessão salva (para bypassar o WAF)
+// Retorna array de cookies, ou null se não houver sessão salva
+function carregarCookiesCloudflare() {
+  let json = null;
+
   if (process.env.C6_SESSION) {
-    const json = Buffer.from(process.env.C6_SESSION, 'base64').toString('utf-8');
-    fs.writeFileSync('/tmp/session-c6.json', json);
-    return '/tmp/session-c6.json';
+    json = Buffer.from(process.env.C6_SESSION, 'base64').toString('utf-8');
+  } else if (fs.existsSync('session-c6.json')) {
+    json = fs.readFileSync('session-c6.json', 'utf-8');
   }
-  // Local: usa arquivo direto
-  if (fs.existsSync('session-c6.json')) return 'session-c6.json';
-  return null;
+
+  if (!json) return null;
+
+  const state = JSON.parse(json);
+  // Mantém apenas cookies do Cloudflare — os de portal são removidos
+  // para forçar o redirect de login (que gera o FISession)
+  const cfCookies = (state.cookies || []).filter(c =>
+    c.name.startsWith('cf_') || c.name === '__cf_bm' || c.name === '__cflb'
+  );
+  log('[0] Cookies Cloudflare carregados: ' + cfCookies.map(c => c.name).join(', '));
+  return cfCookies.length > 0 ? cfCookies : null;
 }
 
 const URL_BASE           = 'https://c6.c6consig.com.br/WebAutorizador/';
@@ -220,9 +229,9 @@ async function rodar() {
 
   log('[0] ' + propostas.length + ' proposta(s): ' + propostas.map(p => p.proposta).join(', '));
 
-  // 2. Verifica se tem sessão salva
-  const sessaoPath = carregarSessao();
-  log('[0] Sessão: ' + (sessaoPath ? 'encontrada (' + sessaoPath + ')' : 'não encontrada — vai fazer login'));
+  // 2. Carrega só cookies do Cloudflare da sessão (para bypassar WAF sem autenticar no portal)
+  const cfCookies = carregarCookiesCloudflare();
+  log('[0] Bypass Cloudflare: ' + (cfCookies ? 'cookies CF carregados' : 'sem sessão — pode ser bloqueado'));
 
   const browser = await chromium.launch({
     headless: !HEADED,
@@ -235,15 +244,15 @@ async function rodar() {
     ],
   });
 
-  // Carrega sessão salva se disponível — pula login e Cloudflare
   const contextOptions = {
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     viewport: { width: 1280, height: 900 },
     locale: 'pt-BR',
   };
-  if (sessaoPath) contextOptions.storageState = sessaoPath;
 
   const context = await browser.newContext(contextOptions);
+  // Injeta cookies do Cloudflare antes de qualquer navegação
+  if (cfCookies) await context.addCookies(cfCookies);
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   });
