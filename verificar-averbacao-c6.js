@@ -283,22 +283,29 @@ async function rodar() {
         throw new Error('Sess\u00e3o expirada — rode SALVAR-SESSAO.bat para renovar');
       }
 
-      // Extrai FISession da URL após navegação pela base
+      // Extrai FISession — tenta em 3 lugares diferentes
       fiSession = new URL(page.url()).searchParams.get('FISession') || '';
+
       if (!fiSession) {
-        // Fallback: tenta pegar de hidden input no HTML
+        // Links de menu da página autenticada contêm FISession (ex: href="...?FISession=abc123")
         fiSession = await page.evaluate(() => {
-          const el = document.querySelector('input[name="FISession"], input[id="FISession"]');
-          return el ? el.value : '';
+          const links = Array.from(document.querySelectorAll('a[href*="FISession"]'));
+          if (links.length > 0) {
+            const m = (links[0].href || '').match(/FISession=([a-zA-Z0-9]+)/);
+            return m ? m[1] : '';
+          }
+          // Tenta também em hidden inputs e scripts inline
+          const input = document.querySelector('input[name="FISession"], input[id="FISession"]');
+          if (input) return input.value;
+          const scriptMatch = document.body.innerHTML.match(/FISession[=\\"]+([a-zA-Z0-9]{8,})/);
+          return scriptMatch ? scriptMatch[1] : '';
         });
       }
+
+      log('[1] Sessão OK! FISession: ' + (fiSession || '(vazio — página pode não ter links com FISession)'));
       if (!fiSession) {
-        // Último recurso: navega para Andamento e tenta pegar da URL de redirect
-        await page.goto(URL_ANDAMENTO, { waitUntil: 'domcontentloaded', timeout: 60000 });
-        await page.waitForLoadState('networkidle').catch(() => {});
-        fiSession = new URL(page.url()).searchParams.get('FISession') || '';
+        log('[1] AVISO: sem FISession — esteiras podem não renderizar. Verifique screenshot-login-c6.png');
       }
-      log('[1] Sessão OK! FISession: ' + (fiSession || '(vazio)'));
 
     } else {
       // 3b. Sem sessão — faz login normal
