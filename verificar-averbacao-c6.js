@@ -280,31 +280,20 @@ async function rodar() {
     // Com ou sem sessão: sempre faz login pra obter FISession
     // A sessão salva tem os cookies do Cloudflare — bypassa o bloqueio
     // O login em si é necessário pra o portal gerar o FISession
-    log('[1] Abrindo portal C6...');
-    await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+    // Navega para uma página protegida — o portal redireciona para login COM FISession na URL
+    log('[1] Acessando página protegida para obter FISession via redirect de login...');
+    await page.goto(URL_ANDAMENTO, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
     await page.waitForTimeout(3000);
     await page.screenshot({ path: 'screenshot-login-c6.png' });
     log('[1] URL atual: ' + page.url());
 
-    // Se já está autenticado (sessão válida), o portal redireciona direto sem pedir login
-    if (!page.url().includes('Login') && page.url().includes('WebAutorizador')) {
-      fiSession = new URL(page.url()).searchParams.get('FISession') || '';
-      if (!fiSession) {
-        fiSession = await page.evaluate(() => {
-          const links = Array.from(document.querySelectorAll('a[href*="FISession"]'));
-          if (links.length > 0) {
-            const m = (links[0].href || '').match(/FISession=([a-zA-Z0-9]+)/);
-            return m ? m[1] : '';
-          }
-          return '';
-        });
-      }
-      log('[1] Sessão ativa, FISession: ' + (fiSession || '(vazio)'));
-    }
+    // Extrai FISession da URL (presente tanto na URL de login quanto na URL autenticada)
+    fiSession = new URL(page.url()).searchParams.get('FISession') || '';
+    log('[1] FISession: ' + (fiSession || '(vazio)'));
 
-    // Se FISession ainda vazio, faz login para obtê-lo
-    if (!fiSession) {
-      log('[2] FISession não obtido passivamente — fazendo login para gerá-lo...');
+    // Se caiu na página de login, faz login para autenticar
+    if (!fiSession || page.url().toLowerCase().includes('login')) {
+      log('[2] Página de login detectada — fazendo login...');
       await page.waitForSelector('input[type="text"], input[type="password"]', { timeout: 30000 });
       await page.waitForTimeout(1000);
 
@@ -328,6 +317,8 @@ async function rodar() {
       if (!fiSession) {
         throw new Error('Login conclu\u00eddo mas FISession n\u00e3o encontrado na URL. URL atual: ' + page.url());
       }
+    } else {
+      log('[1] Já autenticado com FISession: ' + fiSession);
     }
 
     // 4. Verifica cada proposta
