@@ -100,11 +100,31 @@ async function salvarAverbacao(proposta, mPago) {
 // Pesquisa a proposta em uma esteira específica e retorna o texto da coluna ATIVIDADE
 // Retorna: string com valor da ATIVIDADE | null se não encontrou a proposta
 async function pesquisarNaEsteira(page, proposta, urlEsteira, fiSession) {
-  await page.goto(urlEsteira + '?FISession=' + fiSession, {
+  // FISession só appenda se não estiver vazio — com sessão salva cookies bastam
+  const urlFinal = fiSession ? urlEsteira + '?FISession=' + fiSession : urlEsteira;
+  await page.goto(urlFinal, {
     waitUntil: 'domcontentloaded', timeout: 60000,
   });
   await page.waitForLoadState('networkidle').catch(() => {});
+
+  // Se redirecionou pra login, sessão expirou
+  if (page.url().toLowerCase().includes('login')) {
+    throw new Error('Sessão expirada durante navegação — rode SALVAR-SESSAO.bat para renovar');
+  }
   await page.waitForTimeout(2000);
+
+  // Debug: verifica se há frames (portais ASP.NET às vezes usam iframes)
+  const qtdFrames = page.frames().length;
+  if (qtdFrames > 1) log('[debug] ' + qtdFrames + ' frames detectados na página');
+
+  // Tenta localizar o select — se não achar em 5s, tira screenshot pra diagnóstico
+  const temSelect = await page.locator('select').first().isVisible({ timeout: 5000 }).catch(() => false);
+  if (!temSelect) {
+    await page.screenshot({ path: 'screenshot-esteira-debug.png' });
+    log('[debug] Select não encontrado — screenshot salvo em screenshot-esteira-debug.png');
+    log('[debug] URL atual: ' + page.url());
+    return null; // página não carregou o formulário, tenta próxima esteira
+  }
 
   await page.locator('select').first().selectOption({ label: 'Nr. Proposta' });
   await page.waitForTimeout(1000);
@@ -249,20 +269,36 @@ async function rodar() {
 
   try {
     if (sessaoPath) {
-      // 3a. Com sessão — navega direto pra área autenticada
-      log('[1] Carregando sessão salva — navegando direto...');
-      await page.goto(URL_ANDAMENTO, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      // 3a. Com sessão — navega pela URL base para pegar FISession
+      // (necessário: o portal ASP.NET precisa do FISession para renderizar os formulários)
+      log('[1] Carregando sessão salva — navegando pela URL base para obter FISession...');
+      await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
       await page.waitForLoadState('networkidle').catch(() => {});
       await page.screenshot({ path: 'screenshot-login-c6.png' });
       log('[1] URL atual: ' + page.url());
 
-      // Verifica se sessão ainda é válida (deve estar na área autenticada)
+      // Verifica se sessão ainda é válida
       const url = page.url();
       if (!url.includes('WebAutorizador') || url.includes('Login')) {
         throw new Error('Sess\u00e3o expirada — rode SALVAR-SESSAO.bat para renovar');
       }
+
+      // Extrai FISession da URL após navegação pela base
       fiSession = new URL(page.url()).searchParams.get('FISession') || '';
-      log('[1] Sess\u00e3o OK! FISession: ' + fiSession);
+      if (!fiSession) {
+        // Fallback: tenta pegar de hidden input no HTML
+        fiSession = await page.evaluate(() => {
+          const el = document.querySelector('input[name="FISession"], input[id="FISession"]');
+          return el ? el.value : '';
+        });
+      }
+      if (!fiSession) {
+        // Último recurso: navega para Andamento e tenta pegar da URL de redirect
+        await page.goto(URL_ANDAMENTO, { waitUntil: 'domcontentloaded', timeout: 60000 });
+        await page.waitForLoadState('networkidle').catch(() => {});
+        fiSession = new URL(page.url()).searchParams.get('FISession') || '';
+      }
+      log('[1] Sessão OK! FISession: ' + (fiSession || '(vazio)'));
 
     } else {
       // 3b. Sem sessão — faz login normal
