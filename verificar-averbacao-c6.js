@@ -231,8 +231,11 @@ async function rodar() {
   try {
     // 3. Login — mesmo método testado e funcionando no C6
     log('[1] Abrindo portal C6...');
-    await page.goto(URL_BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.waitForSelector('input[type="text"]', { timeout: 30000 });
+    await page.goto(URL_BASE, { waitUntil: 'networkidle', timeout: 60000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+    await page.screenshot({ path: 'screenshot-login-c6.png' });
+    log('[1] URL atual: ' + page.url());
+    await page.waitForSelector('input[type="text"], input[type="password"]', { timeout: 30000 });
     await page.waitForTimeout(1000);
 
     log('[2] Fazendo login...');

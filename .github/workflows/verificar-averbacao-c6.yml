@@ -34,3 +34,11 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: node verificar-averbacao-c6.js
+
+      - name: Salvar screenshot de debug
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshot-login-c6
+          path: screenshot-login-c6.png
+          retention-days: 3
